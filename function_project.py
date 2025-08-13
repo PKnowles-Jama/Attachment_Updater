@@ -118,7 +118,7 @@ def update_attachments_by_type(jama_username, jama_password, project_api_id, cus
         print(f"\nProcessing attachment '{attachment['original_name']}'...")
         try:
             # Step A: Download the original attachment
-            print("    - Step A: Downloading original attachment...")
+            print("    - Step A: Downloading original attachment...")
             response = session.get(attachment['download_url'], stream=True)
             response.raise_for_status()
             
@@ -126,33 +126,62 @@ def update_attachments_by_type(jama_username, jama_password, project_api_id, cus
             file_path = os.path.join(temp_dir, attachment['new_name'])
             with open(file_path, 'wb') as f:
                 shutil.copyfileobj(response.raw, f)
-            print(f"    - Saved '{attachment['original_name']}' as '{attachment['new_name']}'.")
+            print(f"    - Saved '{attachment['original_name']}' as '{attachment['new_name']}'.")
             
-            # # Step B: Update the attachment's name (optional but good practice)
-            # print("    - Step B: Updating attachment name in Jama Connect...")
-            # update_item_url = f"{jama_base_url_v2.rstrip('/')}/items/{attachment['original_attachment_id']}"
-            # update_payload = {
-            #     "fields": {
-            #         "name": attachment['new_name']
-            #     }
-            # }
-            # response = session.put(update_item_url, json=update_payload, headers=json_headers)
-            # response.raise_for_status()
-            # print("    - Name updated successfully.")
+            # Step B: This step is now asynchronous and will be handled after the loop.
+            # We're just preparing the data for the final PATCH request.
+            # print("    - Step B: Updating attachment name in Jama Connect...")
             
             # Step C: Upload the new file content to the existing attachment
-            print("    - Step C: Uploading the new file content...")
+            print("    - Step C: Uploading the new file content...")
             upload_file_url = f"{jama_base_url_v2.rstrip('/')}/attachments/{attachment['original_attachment_id']}/file"
             with open(file_path, 'rb') as f:
                 files = {'file': (os.path.basename(file_path), f, 'application/octet-stream')}
                 response = session.put(upload_file_url, files=files, headers=multipart_headers)
                 response.raise_for_status()
-                print("    - Successfully replaced the file content.")
+                print("    - Successfully replaced the file content.")
 
         except requests.exceptions.HTTPError as e:
-            print(f"    - An HTTP error occurred during the update process for {attachment['original_name']}. Error: {e}")
+            print(f"    - An HTTP error occurred during the update process for {attachment['original_name']}. Error: {e}")
         except Exception as e:
-            print(f"    - An unexpected error occurred during the update process for {attachment['original_name']}. Error: {e}")
+            print(f"    - An unexpected error occurred during the update process for {attachment['original_name']}. Error: {e}")
+
+    # --- 5. Asynchronous Name Update using PATCH ---
+    print("\n--- 5. Finalizing Updates ---")
+    if attachments_to_update:
+        print("Submitting asynchronous PATCH request to update all attachment names...")
+        
+        # Correct endpoint for this operation is '/rest/v1/items'
+        patch_items_url = f"{jama_base_url_v2.rstrip('/')}/../v1/items"
+        
+        # Build the payload according to the Swagger page format
+        patch_payload = []
+        for attachment in attachments_to_update:
+            patch_payload.append({
+                "items": [
+                    attachment['original_attachment_id']
+                ],
+                "operations": [
+                    {
+                        "op": "replace",
+                        "path": "/fields/name",
+                        "value": attachment['new_name']
+                    }
+                ]
+            })
+
+        try:
+            response = session.patch(patch_items_url, json=patch_payload, headers=json_headers)
+            response.raise_for_status()
+            response_data = response.json()
+            work_identifier = response_data['data']['workKey']
+            print(f"PATCH request successful! A work identifier has been provided for monitoring: {work_identifier} 🚀")
+        except requests.exceptions.HTTPError as e:
+            print(f"An HTTP error occurred during the asynchronous name update. Error: {e}")
+        except Exception as e:
+            print(f"An unexpected error occurred during the asynchronous name update: {e}")
+    else:
+        print("No PATCH operations to submit.")
 
     #Cleanup
     cleanup(t_f, temp_dir)

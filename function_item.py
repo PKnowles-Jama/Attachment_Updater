@@ -2,8 +2,6 @@ import requests
 from requests.auth import HTTPBasicAuth
 import json
 import os
-import shutil
-import base64
 from cleanup_file_directory import cleanup
 
 def update_item_attachments(jama_username,jama_password,project_api_id,custom_prefix,jama_base_url_v2,t_f):
