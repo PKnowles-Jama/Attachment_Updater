@@ -39,3 +39,6 @@ if __name__ == '__main__':
     t_f = 'true'
 
     index = update_item_attachments(jama_username,jama_password,project_api_id,custom_prefix,jama_base_url_v2,t_f)
+
+qijvent9nqwwojz
+g8ok210wlnedrp9hx6nn6t1kd

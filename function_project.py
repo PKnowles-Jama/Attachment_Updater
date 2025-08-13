@@ -4,14 +4,15 @@ import os
 import shutil
 from cleanup_file_directory import cleanup
 
-def update_attachments_by_type(jama_username, jama_password, project_api_id, custom_prefix, jama_base_url_v2, attachment_item_type_id, t_f, index):
+def update_attachments_by_type(basic_oauth, jama_username, jama_password, project_api_id, custom_prefix, jama_base_url_v2, attachment_item_type_id, t_f, index):
     """
     Finds and re-uploads attachments within a Jama Connect project that are of a specific item type,
     renaming them with a custom prefix and a unique suffix, and replacing the original file.
 
     Args:
-        jama_username (str): Your Jama Connect username.
-        jama_password (str): Your Jama Connect password.
+        basic_oauth (str): The authentication method ('basic' or 'oauth').
+        jama_username (str): Your Jama Connect username or client ID.
+        jama_password (str): Your Jama Connect password or client secret.
         project_api_id (int): The API ID of the project to target.
         custom_prefix (str): The custom prefix to add to the renamed files.
         jama_base_url_v2 (str): The base URL for the Jama Connect REST API v2.
@@ -21,10 +22,42 @@ def update_attachments_by_type(jama_username, jama_password, project_api_id, cus
     """
 
     # --- 1. Authentication ---
-    print("Authenticating with Jama Connect...")
-    auth = HTTPBasicAuth(jama_username, jama_password)
+    print(f"Authenticating with Jama Connect using {basic_oauth.upper()}...")
     session = requests.Session()
-    session.auth = auth
+
+    if basic_oauth == 'basic':
+        auth = HTTPBasicAuth(jama_username, jama_password)
+        session.auth = auth
+    elif basic_oauth == 'oauth':
+        # OAuth 2.0 Client Credentials Flow
+        client_id = jama_username
+        client_secret = jama_password
+        token_url = f"{jama_base_url_v2.rstrip('/')}/rest/oauth/token"
+        
+        try:
+            # Get the access token
+            token_data = {
+                'grant_type': 'client_credentials',
+                'client_id': client_id,
+                'client_secret': client_secret
+            }
+            response = requests.post(token_url, data=token_data)
+            response.raise_for_status()
+            token = response.json().get('access_token')
+            
+            # Use the token for subsequent requests
+            session.headers.update({"Authorization": f"Bearer {token}"})
+            print("OAuth 2.0 authentication successful! 🎉")
+        except requests.exceptions.HTTPError as e:
+            print(f"OAuth 2.0 authentication failed. Please check your client ID and secret.")
+            print(f"Error: {e}")
+            return
+        except Exception as e:
+            print(f"An unexpected error occurred during OAuth authentication: {e}")
+            return
+    else:
+        print("Invalid 'basic_oauth' value. Please use 'basic' or 'oauth'.")
+        return
 
     json_headers = {
         "Content-Type": "application/json",
@@ -34,11 +67,12 @@ def update_attachments_by_type(jama_username, jama_password, project_api_id, cus
     multipart_headers = {
         "Accept": "application/json",
     }
-
+    
+    # Test authentication with a simple API call
     try:
         response = session.get(f"{jama_base_url_v2.rstrip('/')}/projects", headers=json_headers)
         response.raise_for_status()
-        print("Authentication successful! 🎉")
+        print("Initial authentication check successful! 🎉")
     except requests.exceptions.HTTPError as e:
         print(f"Authentication failed. Please check your credentials. Error: {e}")
         return
@@ -118,7 +152,7 @@ def update_attachments_by_type(jama_username, jama_password, project_api_id, cus
         print(f"\nProcessing attachment '{attachment['original_name']}'...")
         try:
             # Step A: Download the original attachment
-            print("    - Step A: Downloading original attachment...")
+            print("    - Step A: Downloading original attachment...")
             response = session.get(attachment['download_url'], stream=True)
             response.raise_for_status()
             
@@ -126,25 +160,21 @@ def update_attachments_by_type(jama_username, jama_password, project_api_id, cus
             file_path = os.path.join(temp_dir, attachment['new_name'])
             with open(file_path, 'wb') as f:
                 shutil.copyfileobj(response.raw, f)
-            print(f"    - Saved '{attachment['original_name']}' as '{attachment['new_name']}'.")
-            
-            # Step B: This step is now asynchronous and will be handled after the loop.
-            # We're just preparing the data for the final PATCH request.
-            # print("    - Step B: Updating attachment name in Jama Connect...")
+            print(f"    - Saved '{attachment['original_name']}' as '{attachment['new_name']}'.")
             
             # Step C: Upload the new file content to the existing attachment
-            print("    - Step C: Uploading the new file content...")
+            print("    - Step C: Uploading the new file content...")
             upload_file_url = f"{jama_base_url_v2.rstrip('/')}/attachments/{attachment['original_attachment_id']}/file"
             with open(file_path, 'rb') as f:
                 files = {'file': (os.path.basename(file_path), f, 'application/octet-stream')}
-                response = session.put(upload_file_url, files=files, headers=multipart_headers, auth=auth)
+                response = session.put(upload_file_url, files=files, headers=multipart_headers)
                 response.raise_for_status()
-                print("    - Successfully replaced the file content.")
+                print("    - Successfully replaced the file content.")
 
         except requests.exceptions.HTTPError as e:
-            print(f"    - An HTTP error occurred during the update process for {attachment['original_name']}. Error: {e}")
+            print(f"    - An HTTP error occurred during the update process for {attachment['original_name']}. Error: {e}")
         except Exception as e:
-            print(f"    - An unexpected error occurred during the update process for {attachment['original_name']}. Error: {e}")
+            print(f"    - An unexpected error occurred during the update process for {attachment['original_name']}. Error: {e}")
 
     # --- 5. Asynchronous Name Update using PATCH ---
     print("\n--- 5. Finalizing Updates ---")

@@ -29,8 +29,9 @@ class Worker(QObject):
     """
     finished = pyqtSignal()
     
-    def __init__(self, jama_username, jama_password, project_api_id, custom_prefix, url, attachment_item_type_id, delete_downloads):
+    def __init__(self, basic_oauth, jama_username, jama_password, project_api_id, custom_prefix, url, attachment_item_type_id, delete_downloads):
         super().__init__()
+        self.basic_oauth = basic_oauth  # New parameter
         self.jama_username = jama_username
         self.jama_password = jama_password
         self.project_api_id = project_api_id
@@ -54,6 +55,7 @@ class Worker(QObject):
             # Step 1: Execute the first function
             print("Executing update_item_attachments...")
             index = update_item_attachments(
+                basic_oauth=self.basic_oauth,  # Pass the new parameter
                 jama_username=self.jama_username,
                 jama_password=self.jama_password,
                 project_api_id=self.project_api_id,
@@ -66,6 +68,7 @@ class Worker(QObject):
             # Step 2: Execute the second function with the returned index
             print("Executing update_project_attachments...")
             update_attachments_by_type(
+                basic_oauth=self.basic_oauth,  # Pass the new parameter
                 jama_username=self.jama_username,
                 jama_password=self.jama_password,
                 project_api_id=self.project_api_id,
@@ -155,11 +158,14 @@ class AttachmentUpdater(QWidget):
         script_dir = os.path.dirname(os.path.abspath(__file__))
         logo_path = os.path.join(script_dir, 'jama_logo.png')
         pixmap = QPixmap(logo_path)
+        
+        # Scale the pixmap while preserving the aspect ratio.
+        # This will prevent distortion and blurriness.
         scaled_pixmap = pixmap.scaled(
                 150,
-                35,
-                Qt.AspectRatioMode.KeepAspectRatio,  # Maintain aspect ratio
-                Qt.TransformationMode.SmoothTransformation # For better quality
+                pixmap.height(), # Automatically determine the height
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
             )
         self.logo.setPixmap(scaled_pixmap)
         header_layout.addWidget(self.logo)
@@ -178,12 +184,12 @@ class AttachmentUpdater(QWidget):
         form_layout = QFormLayout()
 
         self.basic = QRadioButton("Basic")
-        self.oAuth = QRadioButton("oAuth")
+        # self.oAuth = QRadioButton("oAuth")
         self.basic.setChecked(True)
         
         radio_button_layout = QHBoxLayout()
         radio_button_layout.addWidget(self.basic)
-        radio_button_layout.addWidget(self.oAuth)
+        # radio_button_layout.addWidget(self.oAuth)
         radio_button_layout.addStretch()
 
         form_layout.addRow("Select Jama Connect Login Method:", radio_button_layout)
@@ -197,6 +203,9 @@ class AttachmentUpdater(QWidget):
         self.submit_button.clicked.connect(self.CheckLoginMethod)
 
     def CheckLoginMethod(self):
+        # Store the authentication method before clearing the layout
+        self.basic_oauth = 'basic' if self.basic.isChecked() else 'oauth'
+        
         self.clearLayout(self.dynamic_content_layout) # Clear only the dynamic content layout
         
         if self.basic.isChecked():
@@ -286,6 +295,9 @@ class AttachmentUpdater(QWidget):
         
         print("Starting attachment update sequence...")
 
+        # Use the stored authentication method
+        basic_oauth = self.basic_oauth
+
         # Get all the input values from the GUI
         jama_username = self.username_input.text()
         jama_password = self.password_input.text()
@@ -298,6 +310,7 @@ class AttachmentUpdater(QWidget):
         # Create the thread and worker objects
         self.thread = QThread()
         self.worker = Worker(
+            basic_oauth=basic_oauth,  # Pass the new argument
             jama_username=jama_username,
             jama_password=jama_password,
             project_api_id=project_api_id,

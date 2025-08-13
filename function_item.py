@@ -4,14 +4,44 @@ import json
 import os
 from cleanup_file_directory import cleanup
 
-def update_item_attachments(jama_username,jama_password,project_api_id,custom_prefix,jama_base_url_v2,t_f):
-    # --- 2. Authenticate using HTTPBasicAuth (cleaner approach) ---
-    print("\nAttempting to authenticate with Jama Connect using Basic Auth...")
-    auth = HTTPBasicAuth(jama_username, jama_password)
-
-    # Create session with consistent auth
+def update_item_attachments(basic_oauth, jama_username, jama_password, project_api_id, custom_prefix, jama_base_url_v2, t_f):
+    # --- 2. Authenticate based on the basic_oauth parameter ---
+    print(f"\nAttempting to authenticate with Jama Connect using {basic_oauth.upper()}...")
     session = requests.Session()
-    session.auth = auth
+    
+    if basic_oauth == 'basic':
+        auth = HTTPBasicAuth(jama_username, jama_password)
+        session.auth = auth
+    elif basic_oauth == 'oauth':
+        # OAuth 2.0 Client Credentials Flow
+        client_id = jama_username
+        client_secret = jama_password
+        token_url = f"{jama_base_url_v2.rstrip('/')}/rest/oauth/token"
+        
+        try:
+            # Get the access token
+            token_data = {
+                'grant_type': 'client_credentials',
+                'client_id': client_id,
+                'client_secret': client_secret
+            }
+            response = requests.post(token_url, data=token_data)
+            response.raise_for_status()
+            token = response.json().get('access_token')
+            
+            # Use the token for subsequent requests
+            session.headers.update({"Authorization": f"Bearer {token}"})
+            print("OAuth 2.0 authentication successful! 🎉")
+        except requests.exceptions.HTTPError as e:
+            print(f"OAuth 2.0 authentication failed. Please check your client ID and secret.")
+            print(f"Error: {e}")
+            exit()
+        except Exception as e:
+            print(f"An unexpected error occurred during OAuth authentication: {e}")
+            exit()
+    else:
+        print("Invalid 'basic_oauth' value. Please use 'basic' or 'oauth'.")
+        exit()
 
     json_headers = {
         "Content-Type": "application/json",
@@ -28,7 +58,7 @@ def update_item_attachments(jama_username,jama_password,project_api_id,custom_pr
         response.raise_for_status()
         print("Authentication successful! 🎉")
     except requests.exceptions.HTTPError as e:
-        print(f"Authentication failed. Please check your username and password.")
+        print(f"Authentication failed. Please check your credentials.")
         print(f"Error: {e}")
         exit()
     except Exception as e:
