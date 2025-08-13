@@ -1,7 +1,7 @@
 import sys
 import os
-from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QPushButton, QLineEdit, QRadioButton, QLabel, QTextEdit, QHBoxLayout, QFrame, QFormLayout)
-from PyQt6.QtCore import Qt, QObject, pyqtSignal
+from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QPushButton, QLineEdit, QRadioButton, QLabel, QTextEdit, QHBoxLayout, QFrame, QFormLayout, QFileDialog)
+from PyQt6.QtCore import Qt, QObject, pyqtSignal, QThread
 from PyQt6.QtGui import QIcon, QPixmap
 # Assuming these modules are in the same directory and contain the correct functions
 from function_project import update_attachments_by_type
@@ -9,6 +9,10 @@ from function_item import update_item_attachments
 
 # Custom stream class to redirect stdout (print statements) to the QTextEdit widget
 class Stream(QObject):
+    """
+    A custom stream class that redirects stdout to a signal.
+    This allows us to capture print statements and display them in the GUI.
+    """
     text_written = pyqtSignal(str)
 
     def write(self, text):
@@ -16,6 +20,69 @@ class Stream(QObject):
     
     def flush(self):
         pass
+
+# Worker class to run the long-running functions in a separate thread
+class Worker(QObject):
+    """
+    A worker object to execute the update sequence.
+    Inherits from QObject to allow signals.
+    """
+    finished = pyqtSignal()
+    
+    def __init__(self, jama_username, jama_password, project_api_id, custom_prefix, url, attachment_item_type_id, delete_downloads):
+        super().__init__()
+        self.jama_username = jama_username
+        self.jama_password = jama_password
+        self.project_api_id = project_api_id
+        self.custom_prefix = custom_prefix
+        self.url = url
+        self.attachment_item_type_id = attachment_item_type_id
+        self.delete_downloads = delete_downloads
+
+    def run(self):
+        """
+        Executes the two update functions in sequence.
+        This method will be run in the new thread.
+        """
+        try:
+            # Construct the V2 URL
+            if not self.url.endswith("/"):
+                jama_base_url_v2 = self.url + "/rest/v2/"
+            else:
+                jama_base_url_v2 = self.url + "rest/v2/"
+            
+            # Step 1: Execute the first function
+            print("Executing update_item_attachments...")
+            index = update_item_attachments(
+                jama_username=self.jama_username,
+                jama_password=self.jama_password,
+                project_api_id=self.project_api_id,
+                custom_prefix=self.custom_prefix,
+                jama_base_url_v2=jama_base_url_v2,
+                t_f=self.delete_downloads
+            )
+            print(f"update_item_attachments completed. Returned index: {index}")
+
+            # Step 2: Execute the second function with the returned index
+            print("Executing update_project_attachments...")
+            update_attachments_by_type(
+                jama_username=self.jama_username,
+                jama_password=self.jama_password,
+                project_api_id=self.project_api_id,
+                custom_prefix=self.custom_prefix,
+                jama_base_url_v2=jama_base_url_v2,
+                attachment_item_type_id=self.attachment_item_type_id,
+                t_f=self.delete_downloads,
+                index=index
+            )
+            print("update_project_attachments completed.")
+            print("Attachment update sequence finished successfully!")
+        except Exception as e:
+            print(f"An error occurred during the update sequence: {e}")
+        
+        # Emit the finished signal when done
+        self.finished.emit()
+
 
 class AttachmentUpdater(QWidget):
     def __init__(self):
@@ -54,12 +121,13 @@ class AttachmentUpdater(QWidget):
         self.SelectLoginMethod()
 
         # Redirect sys.stdout to our custom Stream class
-        sys.stdout = Stream()
-        sys.stdout.text_written.connect(self.log_to_readout)
+        self.stream = Stream()
+        sys.stdout = self.stream
+        self.stream.text_written.connect(self.log_to_readout)
 
     def log_to_readout(self, text):
         """Append text to the readout log."""
-        self.readout_log.append(text)
+        self.readout_log.insertPlainText(text)
         self.readout_log.verticalScrollBar().setValue(self.readout_log.verticalScrollBar().maximum())
 
 
@@ -177,6 +245,8 @@ class AttachmentUpdater(QWidget):
         form_layout.addRow(self.delete_downloads_label,self.delete_downloads_input)
 
         self.login_button = self.NextButton("Run",True)
+        self.save_logs_button = self.NextButton("Save Logs", True)
+        self.save_logs_button.hide()
         
         # Add the readout log area
         self.readout_label = QLabel("Readout Log:")
@@ -188,10 +258,12 @@ class AttachmentUpdater(QWidget):
         self.dynamic_content_layout.addWidget(self.login_button)
         self.dynamic_content_layout.addWidget(self.readout_label)
         self.dynamic_content_layout.addWidget(self.readout_log)
+        self.dynamic_content_layout.addWidget(self.save_logs_button)
         self.dynamic_content_layout.addStretch() # Push content to the top within its own section
 
         # Connect the login button to the new sequence function
-        self.login_button.clicked.connect(self.run_update_sequence)
+        self.login_button.clicked.connect(self.start_update_sequence)
+        self.save_logs_button.clicked.connect(self.save_logs)
 
     def NextButton(self,label,Enable):
         self.next_button = QPushButton(label)
@@ -202,18 +274,16 @@ class AttachmentUpdater(QWidget):
             self.next_button.setStyleSheet("background-color: #0052CC; color: white;")
         return self.next_button
 
-    def run_update_sequence(self):
+    def start_update_sequence(self):
         """
-        Executes the two update functions in sequence.
-        
-        1. Gathers all input from the GUI.
-        2. Calls update_item_attachments, which returns an index.
-        3. Calls update_project_attachments with the returned index.
-        4. All print statements from the functions are redirected to the readout log.
+        Gathers inputs and starts the update sequence in a new thread.
         """
-        # Clear the log for a new run
+        # Disable the button, hide the save button and clear the log for a new run
+        self.login_button.setEnabled(False)
+        self.login_button.setStyleSheet("background-color: #53575A; color: white;")
+        self.save_logs_button.hide()
         self.readout_log.clear()
-
+        
         print("Starting attachment update sequence...")
 
         # Get all the input values from the GUI
@@ -225,41 +295,52 @@ class AttachmentUpdater(QWidget):
         attachment_item_type_id = self.attachement_api_id_input.text()
         delete_downloads = self.delete_downloads_input.isChecked()
 
-        # Construct the V2 URL
-        if not url.endswith("/"):
-            jama_base_url_v2 = url + "/rest/v2/"
-        else:
-            jama_base_url_v2 = url + "rest/v2/"
+        # Create the thread and worker objects
+        self.thread = QThread()
+        self.worker = Worker(
+            jama_username=jama_username,
+            jama_password=jama_password,
+            project_api_id=project_api_id,
+            custom_prefix=custom_prefix,
+            url=url,
+            attachment_item_type_id=attachment_item_type_id,
+            delete_downloads=delete_downloads
+        )
 
-        try:
-            # Step 1: Execute the first function
-            print("Executing update_item_attachments...")
-            index = update_item_attachments(
-                jama_username=jama_username,
-                jama_password=jama_password,
-                project_api_id=project_api_id,
-                custom_prefix=custom_prefix,
-                jama_base_url_v2=jama_base_url_v2,
-                t_f=delete_downloads
-            )
-            print(f"update_item_attachments completed. Returned index: {index}")
+        # Move the worker object to the thread
+        self.worker.moveToThread(self.thread)
 
-            # Step 2: Execute the second function with the returned index
-            print("Executing update_project_attachments...")
-            update_attachments_by_type(
-                jama_username=jama_username,
-                jama_password=jama_password,
-                project_api_id=project_api_id,
-                custom_prefix=custom_prefix,
-                jama_base_url_v2=jama_base_url_v2,
-                attachment_item_type_id=attachment_item_type_id,
-                t_f=delete_downloads,
-                index=index
-            )
-            print("update_project_attachments completed.")
-            print("Attachment update sequence finished successfully!")
-        except Exception as e:
-            print(f"An error occurred during the update sequence: {e}")
+        # Connect signals and slots
+        self.thread.started.connect(self.worker.run)
+        self.worker.finished.connect(self.thread.quit)
+        self.worker.finished.connect(self.worker.deleteLater)
+        self.thread.finished.connect(self.thread.deleteLater)
+        
+        # Connect the finished signal to re-enable the button
+        self.worker.finished.connect(self.enable_run_button)
+
+        # Start the thread
+        self.thread.start()
+    
+    def enable_run_button(self):
+        """Re-enables the 'Run' button and shows the 'Save Logs' button."""
+        self.login_button.setEnabled(True)
+        self.login_button.setStyleSheet("background-color: #0052CC; color: white;")
+        self.save_logs_button.show()
+
+    def save_logs(self):
+        """Opens a file dialog and saves the log content to a text file."""
+        # Open a save file dialog
+        fileName, _ = QFileDialog.getSaveFileName(self, "Save Logs", "", "Text Files (*.txt);;All Files (*)")
+
+        if fileName:
+            # If a file name was selected, write the log content to it
+            try:
+                with open(fileName, 'w', encoding='utf-8') as f:
+                    f.write(self.readout_log.toPlainText())
+                print(f"Logs successfully saved to {fileName}")
+            except Exception as e:
+                print(f"Error saving file: {e}")
 
 
 if __name__ == "__main__":

@@ -90,9 +90,13 @@ def update_item_attachments(jama_username,jama_password,project_api_id,custom_pr
             
             if file_name:
                 base_name, file_extension = os.path.splitext(file_name)
+                if not file_extension:
+                    file_extension = ".png"
                 new_name_with_ext = f"{custom_prefix}{base_name}_{enumeration:05d}{file_extension}"
             else:
                 base_name, file_extension = os.path.splitext(attachment_name)
+                if not file_extension:
+                    file_extension = ".png"
                 new_name_with_ext = f"{custom_prefix}{base_name}_{enumeration:05d}{file_extension}"
                 print(f"Warning: Attachment ID {attachment['id']} has no filename. Using attachment name for new file name.")
             
@@ -130,12 +134,12 @@ def update_item_attachments(jama_username,jama_password,project_api_id,custom_pr
                 for chunk in response.iter_content(chunk_size=8192):
                     f.write(chunk)
             attachment['new_file_path'] = file_path
-            attachment_file_counter =+ 1
-            print(f"   - Downloaded '{attachment['original_name']}' and saved as '{attachment['new_name']}'.")
+            attachment_file_counter = attachment_file_counter + 1
+            print(f"   - Downloaded '{attachment['original_name']}' and saved as '{attachment['new_name']}'.")
         except Exception as e:
-            print(f"   - Failed to download attachment ID {attachment['original_attachment_id']}. Error: {e}")
+            print(f"   - Failed to download attachment ID {attachment['original_attachment_id']}. Error: {e}")
             attachment['new_file_path'] = None
-            attachment_file_counter =+ 1
+            attachment_file_counter = attachment_file_counter + 1
 
     # --- NEW UPLOAD LOGIC: Using the correct three-step Jama API workflow ---
     print("\nExecuting the three-step attachment upload process...")
@@ -144,10 +148,10 @@ def update_item_attachments(jama_username,jama_password,project_api_id,custom_pr
 
     for attachment in attachments_to_update:
         try:
-            print(f"\n   - Processing attachment '{attachment['new_name']}'...")
+            print(f"\n   - Processing attachment '{attachment['new_name']}'...")
             
             # Step 1: Create a placeholder attachment item
-            print("      - Step 1: Creating a placeholder attachment item...")
+            print("      - Step 1: Creating a placeholder attachment item...")
             create_attachment_url = f"{jama_base_url_v2.rstrip('/')}/projects/{project_api_id}/attachments"
             attachment_payload = {
                 "fields": {
@@ -161,24 +165,24 @@ def update_item_attachments(jama_username,jama_password,project_api_id,custom_pr
             
             try:
                 response_data = response.json()
-                print("      - Raw JSON response:", json.dumps(response_data, indent=2))
+                print("      - Raw JSON response:", json.dumps(response_data, indent=2))
                 new_attachment_item_id = response_data['meta']['id']
-                print(f"      - Successfully created placeholder item with ID: {new_attachment_item_id}")
+                print(f"      - Successfully created placeholder item with ID: {new_attachment_item_id}")
             except KeyError:
                 raise Exception(f"Could not find attachment ID in the server response. Please inspect the raw JSON output above.")
             
             # Step 2: Upload the file content to the placeholder item
-            print("      - Step 2: Uploading the file content...")
+            print("      - Step 2: Uploading the file content...")
             upload_file_url = f"{jama_base_url_v2.rstrip('/')}/attachments/{new_attachment_item_id}/file"
             
             with open(attachment['new_file_path'], 'rb') as f:
                 files = {'file': (os.path.basename(attachment['new_file_path']), f, 'application/octet-stream')}
                 response = session.put(upload_file_url, files=files, headers=multipart_headers)
                 response.raise_for_status()
-                print("      - Successfully uploaded file content.")
+                print("      - Successfully uploaded file content.")
             
             # Step 3: Link the new attachment to the original item
-            print("      - Step 3: Linking the new attachment to the original item...")
+            print("      - Step 3: Linking the new attachment to the original item...")
             link_attachment_url = f"{jama_base_url_v2.rstrip('/')}/items/{attachment['item_id']}/attachments"
             link_payload = {
                 "attachment": new_attachment_item_id
@@ -186,18 +190,18 @@ def update_item_attachments(jama_username,jama_password,project_api_id,custom_pr
             
             response = session.post(link_attachment_url, json=link_payload, headers=json_headers)
             response.raise_for_status()
-            print(f"      - Successfully linked new attachment to item {attachment['item_id']}.")
+            print(f"      - Successfully linked new attachment to item {attachment['item_id']}.")
 
             new_attachment_ids[attachment['original_attachment_id']] = new_attachment_item_id
 
         except requests.exceptions.HTTPError as e:
-            print(f"   - An HTTP error occurred during the upload process for {attachment['new_name']}.")
-            print(f"     Status Code: {e.response.status_code}")
-            print(f"     Response: {e.response.text}")
+            print(f"   - An HTTP error occurred during the upload process for {attachment['new_name']}.")
+            print(f"     Status Code: {e.response.status_code}")
+            print(f"     Response: {e.response.text}")
             upload_successful = False
             break
         except Exception as e:
-            print(f"   - An unexpected error occurred during the upload process for {attachment['new_name']}. Error: {e}")
+            print(f"   - An unexpected error occurred during the upload process for {attachment['new_name']}. Error: {e}")
             upload_successful = False
             break
 
@@ -210,27 +214,16 @@ def update_item_attachments(jama_username,jama_password,project_api_id,custom_pr
                 delete_url = f"{jama_base_url_v2.rstrip('/')}/items/{attachment['item_id']}/attachments/{attachment['original_attachment_id']}"
                 delete_response = session.delete(delete_url, headers=json_headers)
                 delete_response.raise_for_status()
-                print(f"   - Deleted original attachment ID {attachment['original_attachment_id']} from item {attachment['item_id']}.")
+                print(f"   - Deleted original attachment ID {attachment['original_attachment_id']} from item {attachment['item_id']}.")
             except Exception as e:
-                print(f"   - Failed to delete original attachment ID {attachment['original_attachment_id']}. Error: {e}")
-                print("   - Original attachments may remain. Please check manually.")
+                print(f"   - Failed to delete original attachment ID {attachment['original_attachment_id']}. Error: {e}")
+                print("   - Original attachments may remain. Please check manually.")
     else:
         print("\n⚠️ An error occurred during the upload/link process. Deletion of original attachments has been skipped.")
 
     # Cleanup
     cleanup(t_f,temp_dir)
 
-    print("\nScript execution complete.")
+    print("\n✅ Item Attachment Script execution complete. ✅")
 
     return attachment_file_counter
-
-if __name__ == '__main__':
-    # --- 1. Request user inputs ---
-    jama_username = "PKnowles"
-    jama_password = "LetsGoJama1331!"
-    project_api_id = 97
-    custom_prefix = "PK_"
-    jama_base_url_v2 = "https://pknowles-jama-airborne.jamacloud.com/rest/v2/"
-    t_f = 'true'
-
-    index = update_item_attachments(jama_username,jama_password,project_api_id,custom_prefix,jama_base_url_v2,t_f)

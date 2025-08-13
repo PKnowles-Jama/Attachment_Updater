@@ -137,7 +137,7 @@ def update_attachments_by_type(jama_username, jama_password, project_api_id, cus
             upload_file_url = f"{jama_base_url_v2.rstrip('/')}/attachments/{attachment['original_attachment_id']}/file"
             with open(file_path, 'rb') as f:
                 files = {'file': (os.path.basename(file_path), f, 'application/octet-stream')}
-                response = session.put(upload_file_url, files=files, headers=multipart_headers)
+                response = session.put(upload_file_url, files=files, headers=multipart_headers, auth=auth)
                 response.raise_for_status()
                 print("    - Successfully replaced the file content.")
 
@@ -186,27 +186,4 @@ def update_attachments_by_type(jama_username, jama_password, project_api_id, cus
     #Cleanup
     cleanup(t_f, temp_dir)
     
-    print("\nScript execution complete. ✅")
-
-# --- Example Usage (Commented out) ---
-if __name__ == '__main__':
-    # User inputs (replace with your actual values)
-    jama_username = "PKnowles"
-    jama_password = "LetsGoJama1331!"
-    project_api_id = 97
-    custom_prefix = "PK_"
-    jama_base_url_v2 = "https://pknowles-jama-airborne.jamacloud.com/rest/v2/"
-    attachment_item_type_id = 22
-    t_f = 'true'
-    index = 7
-
-    update_attachments_by_type(
-        jama_username,
-        jama_password,
-        project_api_id,
-        custom_prefix,
-        jama_base_url_v2,
-        attachment_item_type_id,
-        t_f,
-        index
-    )
+    print("\n✅ Project Attachment Script execution complete. ✅")
