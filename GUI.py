@@ -3,7 +3,6 @@ import os
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QPushButton, QLineEdit, QRadioButton, QLabel, QTextEdit, QHBoxLayout, QFrame, QFormLayout, QFileDialog)
 from PyQt6.QtCore import Qt, QObject, pyqtSignal, QThread
 from PyQt6.QtGui import QIcon, QPixmap
-# Assuming these modules are in the same directory and contain the correct functions
 from function_project import update_attachments_by_type
 from function_item import update_item_attachments
 
